@@ -1,0 +1,313 @@
+PARSER_BEGIN(Parser)
+package parser;
+import objects.*;
+import ast.*;
+import values.*;
+import types.*;
+import exceptions.*;
+/** ID lister. */
+public class Parser {
+
+  /** Main entry point. */
+  public static void main(String args[]) {
+    Parser parser = new Parser(System.in);
+    ASTNode exp;
+    IEnvironment<String,IValue> envI = new Environment<String,IValue>();
+    IEnvironment<String,IType> envT = new Environment<String,IType>();
+    CodeBlock cb = new CodeBlock();
+
+    while (true) {
+	    try {
+	      exp = parser.Start();
+	      exp.typecheck(envT);
+	      //exp.compile(envC, cb, level);
+	      //cb.dump("ICL");
+	      exp.eval(envI).show();
+	    } catch (ASTTypeException e) {
+	      System.out.println(e.getMessage());
+	      parser.ReInit(System.in);
+	    } catch (ASTRuntimeException e) {
+	      System.out.println(e.getMessage());
+	      parser.ReInit(System.in);
+	    } catch (Exception e) {
+	      System.out.println ("Syntax Error: ");
+	      System.out.println(e.getMessage());
+	      parser.ReInit(System.in);
+	    }
+    }
+  }
+
+}
+
+PARSER_END(Parser)
+
+SKIP :
+{
+  " "
+| "\t"
+| "\r"
+| "\n"
+}
+
+TOKEN :
+{
+  < Num: (["0"-"9"]) + >
+  |
+  < PLUS : "+" >
+  |
+  < MINUS : "-">
+  |
+  < TIMES : "*">
+  |
+  < DIV : "/">
+  |
+  < LPAR : "(" >
+  |
+  < RPAR : ")" >
+  |
+  < EL: ";;" >
+  |
+  < LET: "let" >
+  |
+  < EQ: "=" >
+  | 
+  < IN: "in" >
+  | 
+  < END: "end" >
+  |
+  < SEMICOLON: ";">
+  |
+  < TRUE: "true">
+  |
+  < FALSE: "false">
+  |
+  < AND: "&&">
+  |
+  < OR: "||">
+  |
+  < NOT: "~">
+  |
+  < EQUALSREL: "==">
+  |
+  < GREATER: ">">
+  |
+  < GREATEREQ: ">=">
+  |
+  < LESS: "<">
+  |
+  < LESSEQ: "<=">
+  |
+  < IF: "if" >
+  |
+  < THEN: "then" >
+  |
+  < ELSE: "else" >
+  |
+  < WHILE: "while">
+  |
+  < DO: "do">
+  |
+  < NEW: "new">
+  |
+  < ASSIGN: ":=">
+  |
+  < DEREF: "!">
+  |
+  < INT: "int">
+  |
+  < BOOL: "bool">
+  |
+  < REF: "ref">
+  |
+  < TWOPOINTS: ":">
+  |
+  < PRINTLN: "println">
+  | 
+  < Id: ["a"-"z","A"-"Z"] ( ["a"-"z","A"-"Z","0"-"9"] )* >
+}
+
+ASTNode Start():
+{ ASTNode t; }
+{
+   t = Seq() <EL>
+   { return t; }
+}
+
+ASTNode Seq():
+{   Token op;
+    ASTNode t1, t2;
+}
+{
+    t1 = Assign() (<SEMICOLON> t2=Seq()
+                { t1 = new ASTSeq(t1,t2);} )?
+    {return t1;}
+}
+
+ASTNode Assign():
+{
+    Token op;
+    ASTNode t1,t2, t;
+}
+{
+  	( <PRINTLN> t = Assign() {t1 = new ASTPrint(t);}
+    | t1 = LogicalOr() (<ASSIGN> t2=LogicalOr() {t1 = new ASTAssign(t1,t2);})?)
+    {return t1;}
+}
+
+ASTNode LogicalOr():
+{
+    ASTNode t1, t2;
+}
+{
+    t1=LogicalAnd() (<OR> t2=LogicalAnd()
+    {t1 = new ASTOr(t1,t2);})*
+    {return t1;}
+}
+
+ASTNode LogicalAnd():
+{
+    ASTNode t1, t2;
+}
+{
+    t1=RelationalExp() (<AND> t2=RelationalExp()
+    {t1 = new ASTAnd(t1,t2);})*
+    {return t1;}
+}
+
+ASTNode RelationalExp():
+{   Token op;
+    ASTNode t1, t2;
+}
+{
+    t1 = Exp() (
+    (op=<EQUALSREL> | op=<GREATER> | op=<GREATEREQ> | op=<LESS> | op=<LESSEQ>) t2 = Exp()
+    {
+        if (op.kind==EQUALSREL)
+                    t1 = new ASTEq(t1,t2);
+        else if (op.kind==GREATER)
+                    t1 = new ASTGreater(t1,t2);
+        else if (op.kind==GREATEREQ)
+                    t1 = new ASTGreaterEq(t1,t2);
+        else if (op.kind==LESS)
+                    t1 = new ASTLess(t1,t2);
+        else
+                    t1 = new ASTLessEq(t1,t2);
+    }
+    )*
+    {return t1;}
+}
+
+ASTNode Exp() :
+{ Token op;
+  ASTNode t1, t2; }
+{
+     t1=Term() ( ( op=<PLUS> | op=<MINUS> ) t2=Term() 
+                 { switch (op.kind) { 
+	     			   case PLUS: 
+	                   		t1 = new ASTAdd(t1,t2);
+	                   		break;
+	                   case MINUS:
+	                   		t1 = new ASTSub(t1,t2);
+	                   		break;
+                   }
+                 } 
+               ) *
+     { return t1; } 
+}
+
+ASTNode Term() :
+{ Token op;
+  ASTNode t1, t2; }
+{
+     t1=Unary() ( ( op=<TIMES> | op=<DIV> ) t2=Unary()
+     			 { switch (op.kind) {
+	                   case DIV:
+	                   		t1 = new ASTDiv(t1,t2);
+	                   		break;
+	               	   case TIMES:
+	               			t1 = new ASTTimes(t1,t2);
+	               			break;
+                   }
+                 }
+               )*
+	{ return t1; }
+}
+
+ASTNode Unary() :
+{
+    ASTNode n, t;
+}
+{
+    ( t = Fact()
+    | <MINUS> n=Unary() { t = new ASTSym(n); }
+    | <NOT> n=Unary() { t = new ASTNot(n);}
+    | <DEREF> n=Unary() {t = new ASTDeref(n);}
+    )
+    {return t;}
+
+}
+
+ASTNode Fact() :
+{ Token n; 
+  ASTNode t, t1, t2;}
+{
+    ( <LPAR> t=Seq() <RPAR>
+    | t = Let()
+    | t = If()
+    | t = While()
+    | <NEW> t = Fact() {t = new ASTNew(t);}   	| n = <Num> { t = new ASTNum(Integer.parseInt(n.image)); }
+    | n = <TRUE> {t = new ASTBool(true);}
+    | n = <FALSE> {t = new ASTBool(false);}
+    | n = <Id> { t = new ASTId(n.image); })
+    { return t; }
+}
+
+ASTNode Let() :
+{
+  Token n;
+  IType type;
+  ASTNode t, t1, t2;
+}
+{
+  {t = new ASTLet();}  <LET> n = <Id> <TWOPOINTS> type=Type() <EQ> t1 = Seq()
+  {((ASTLet)t).insertDeclaration(type, n.toString(), t1);}
+  	  (n = <Id> <TWOPOINTS> type=Type() <EQ> t1 = Seq()
+  	  {((ASTLet)t).insertDeclaration(type, n.toString(), t1);}
+  	  )*
+  <IN> t2 = Seq() { ((ASTLet)t).setBody(t2); } <END>
+    { return t; }
+}     
+
+ASTNode If():
+{
+    ASTNode nIf, nThen, nElse; }
+{
+    <IF> nIf = Seq() <THEN> nThen = Seq() <ELSE> nElse = Seq() <END>
+    {
+        return new ASTIf(nIf, nThen, nElse);
+    }
+
+}
+
+ASTNode While():
+{
+    ASTNode condition, body, t;
+}
+{
+    <WHILE> condition = Seq() <DO> body = Seq() <END>
+    {t = new ASTWhile(condition,body);}
+    {return t;}
+}
+
+IType Type():
+{
+    IType t;
+    IType argumentType;
+    IType returnType;
+}
+{
+    ( <INT> {t = new TInt();}
+    | <BOOL> {t = new TBool();}
+    | <REF> t = Type() { t = new TRef(t);} )
+    {return t;}
+}
